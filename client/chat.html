@@ -293,6 +293,12 @@
 
       const effectiveContent = content || '[图片]';
       await ensureConversation(effectiveContent);
+      // 防御：若会话未成功创建，则终止发送，避免触发 /null/send
+      if (!currentConversationId) {
+        setAlert('会话未创建，无法发送。请稍后重试或新建对话。');
+        sendBtn.disabled = false;
+        return;
+      }
 
       const display = effectiveContent + (attachments.length ? `\n[附图: ${attachments.join(', ')}]` : '');
       messages.push({ role: 'user', content: display });

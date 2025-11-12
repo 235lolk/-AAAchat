@@ -182,6 +182,10 @@ router.post('/conversations/:id/send', authenticate, requireCsrf, async (req, re
   const clean = typeof content === 'string' ? content.replace(/[<>]/g, '') : '';
   if (!clean) return res.status(400).json({ error: 'content required' });
   try {
+    // 基本校验：防止 null/undefined/非数字的会话ID继续执行
+    if (!/^[0-9]+$/.test(String(convId))) {
+      return res.status(400).json({ error: 'invalid conversation id' });
+    }
     const [conv] = await pool.query('SELECT id, user_id, title FROM conversations WHERE id = ?', [convId]);
     if (conv.length === 0 || conv[0].user_id !== req.user.id) return res.status(404).json({ error: 'Not found' });
 

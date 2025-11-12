@@ -16,6 +16,7 @@ const DB_NAME = process.env.DB_NAME || 'aaachat';
     const conn = await mysql.createConnection({ host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD, database: DB_NAME, multipleStatements: true });
     await conn.query('SET FOREIGN_KEY_CHECKS=0');
     await conn.query('TRUNCATE TABLE chat_messages');
+    await conn.query('TRUNCATE TABLE conversations');
     await conn.query('TRUNCATE TABLE profiles');
     await conn.query('TRUNCATE TABLE api_keys');
     await conn.query('TRUNCATE TABLE plans');

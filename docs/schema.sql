@@ -3,8 +3,9 @@ CREATE DATABASE IF NOT EXISTS aaachat CHARACTER SET utf8mb4 COLLATE utf8mb4_unic
 USE aaachat;
 
 
-DROP TABLE IF EXISTS plans;
 DROP TABLE IF EXISTS chat_messages;
+DROP TABLE IF EXISTS conversations;
+DROP TABLE IF EXISTS plans;
 DROP TABLE IF EXISTS profiles;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS users;
@@ -42,13 +43,28 @@ CREATE TABLE api_keys (
   INDEX idx_api_keys_provider_shared (provider, is_shared, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- conversations 表：按用户分组的会话元信息
+CREATE TABLE conversations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  title VARCHAR(100) NOT NULL DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_conversations_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- chat_messages 表：消息记录，关联到会话，并区分角色
 CREATE TABLE chat_messages (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
+  conversation_id INT NULL,
+  role ENUM('user','assistant') NOT NULL DEFAULT 'user',
   content TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  INDEX idx_chat_messages_conv (conversation_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- plans 表：用于存储用户的规划计划（与 /api/planner 路由一致）
 -- 说明：visibility 支持 private/public；plan_json 存储完整计划 JSON；
