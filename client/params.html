@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>私人助手BOT 参数</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    .section-title { font-weight: 600; margin-top: 20px; }
+    .hint { color: #6c757d; font-size: 13px; }
+    .form-range + .value { min-width: 72px; text-align: right; color: #555; }
+    .card { box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-radius: 12px; }
+    .kv { display: flex; align-items: center; gap: 12px; }
+  </style>
+</head>
+<body>
+  <!-- 统一导航：公共 header 片段注入容器 -->
+  <div id="header-root"></div>
+
+  <main class="container py-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">调参设置</h5>
+        <div id="saveAlert" class="alert alert-success d-none" role="alert">已保存设置。</div>
+
+        <div class="section-title">共享配置</div>
+        <div id="sharedConfigBox" class="mt-2">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="use_shared">
+            <label class="form-check-label" for="use_shared">使用共享配置</label>
+            <div class="hint">开启后，对话将使用共享池中的配置与密钥。</div>
+          </div>
+          <div id="shared_summary" class="mt-2 alert alert-info d-none">
+            当前共享配置：#<span id="shared_id"></span> (<span id="shared_provider"></span>)。 
+            <a href="shared.html" class="alert-link">前往选择或变更</a>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-12 col-lg-6">
+            <div class="section-title">图片与可视</div>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="send_images">
+              <label class="form-check-label" for="send_images">发送图片</label>
+              <div class="hint">如果模型支持，可在提示中发送图片。</div>
+            </div>
+            <div class="mt-3">
+              <label for="image_quality" class="form-label">图片画质</label>
+              <select id="image_quality" class="form-select form-select-sm" style="max-width:180px">
+                <option value="auto">自动</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </div>
+            <div class="form-check mt-3">
+              <input class="form-check-input" type="checkbox" id="cot_visible">
+              <label class="form-check-label" for="cot_visible">请求思维链</label>
+              <div class="hint">此设置仅影响可见性（模型可能不返回完整思维过程）。</div>
+            </div>
+            <div class="mt-3">
+              <label for="effort_level" class="form-label">推理强度</label>
+              <select id="effort_level" class="form-select form-select-sm" style="max-width:180px">
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+              <div class="hint">与 OpenAI 风格一致：low / medium / high。</div>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-6">
+            <div class="section-title">上下文与输出</div>
+            <div class="mt-2 kv">
+              <label for="context_length" class="form-label mb-0">上下文长度（词符）</label>
+              <input id="context_length" type="range" class="form-range" min="1000" max="200000" step="1000" style="max-width:300px">
+              <div class="value" id="context_length_value">20000</div>
+            </div>
+            <div class="mt-3 kv">
+              <label for="max_tokens" class="form-label mb-0">最大回复长度（词符）</label>
+              <input id="max_tokens" type="number" class="form-control form-control-sm" min="1" max="65535" step="1" style="max-width:160px">
+            </div>
+            <div class="mt-3 kv">
+              <label for="n_choices" class="form-label mb-0">每次生成多个备选回复</label>
+              <input id="n_choices" type="number" class="form-control form-control-sm" min="1" max="5" step="1" style="max-width:120px">
+            </div>
+            <div class="form-check mt-3">
+              <input class="form-check-input" type="checkbox" id="stream">
+              <label class="form-check-label" for="stream">流式传输</label>
+              <div class="hint">打开时逐句显示结果（后端可能不支持流式）。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">采样与惩罚</div>
+        <div class="row g-3">
+          <div class="col-12 col-lg-6 kv">
+            <label for="temperature" class="form-label mb-0">温度</label>
+            <input id="temperature" type="range" class="form-range" min="0" max="2" step="0.01" style="max-width:300px">
+            <div class="value" id="temperature_value">1.42</div>
+          </div>
+          <div class="col-12 col-lg-6 kv">
+            <label for="top_p" class="form-label mb-0">Top P</label>
+            <input id="top_p" type="range" class="form-range" min="0" max="1" step="0.01" style="max-width:300px">
+            <div class="value" id="top_p_value">0.99</div>
+          </div>
+          <div class="col-12 col-lg-6 kv">
+            <label for="freq_penalty" class="form-label mb-0">频率惩罚</label>
+            <input id="freq_penalty" type="range" class="form-range" min="0" max="2" step="0.01" style="max-width:300px">
+            <div class="value" id="freq_penalty_value">0.00</div>
+          </div>
+          <div class="col-12 col-lg-6 kv">
+            <label for="pres_penalty" class="form-label mb-0">存在惩罚</label>
+            <input id="pres_penalty" type="range" class="form-range" min="0" max="2" step="0.01" style="max-width:300px">
+            <div class="value" id="pres_penalty_value">0.00</div>
+          </div>
+        </div>
+
+        <div class="mt-4 d-flex gap-2">
+          <button id="saveBtn" class="btn btn-primary">保存</button>
+          <button id="resetBtn" class="btn btn-outline-secondary">恢复默认</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { ensureAuth } from './js/auth.js';
+    import { injectHeader } from './js/header.js';
+
+    const user = await ensureAuth();
+    // 注入统一导航（自动标记 active，处理 Admin 显示与登出）
+    await injectHeader();
+
+    const defaults = {
+      use_shared: false,
+      send_images: false,
+      image_quality: 'auto',
+      cot_visible: false,
+      effort_level: 'medium',
+      context_length: 20000,
+      max_tokens: 65535,
+      n: 1,
+      stream: false,
+      temperature: 1.42,
+      top_p: 0.99,
+      frequency_penalty: 0,
+      presence_penalty: 0
+    };
+
+    function getSettings() {
+      const raw = localStorage.getItem('tuningSettings');
+      if (!raw) return { ...defaults };
+      try {
+        const parsed = JSON.parse(raw);
+        const merged = { ...defaults, ...parsed };
+        // normalize shared fields (saved by shared.html)
+        if (merged.use_shared && !merged.shared_key_id) {
+          // if toggle on but no selection, disable to avoid confusion
+          merged.use_shared = false;
+        }
+        return merged;
+      } catch {
+        return { ...defaults };
+      }
+    }
+    function setSettings(s) {
+      localStorage.setItem('tuningSettings', JSON.stringify(s));
+    }
+
+    const ui = {
+      use_shared: document.getElementById('use_shared'),
+      send_images: document.getElementById('send_images'),
+      image_quality: document.getElementById('image_quality'),
+      cot_visible: document.getElementById('cot_visible'),
+      effort_level: document.getElementById('effort_level'),
+      context_length: document.getElementById('context_length'),
+      context_length_value: document.getElementById('context_length_value'),
+      max_tokens: document.getElementById('max_tokens'),
+      n_choices: document.getElementById('n_choices'),
+      stream: document.getElementById('stream'),
+      temperature: document.getElementById('temperature'),
+      temperature_value: document.getElementById('temperature_value'),
+      top_p: document.getElementById('top_p'),
+      top_p_value: document.getElementById('top_p_value'),
+      freq_penalty: document.getElementById('freq_penalty'),
+      freq_penalty_value: document.getElementById('freq_penalty_value'),
+      pres_penalty: document.getElementById('pres_penalty'),
+      pres_penalty_value: document.getElementById('pres_penalty_value'),
+      shared_summary: document.getElementById('shared_summary'),
+      shared_id: document.getElementById('shared_id'),
+      shared_provider: document.getElementById('shared_provider'),
+      saveAlert: document.getElementById('saveAlert'),
+      saveBtn: document.getElementById('saveBtn'),
+      resetBtn: document.getElementById('resetBtn')
+    };
+
+    function render(s) {
+      ui.use_shared.checked = !!s.use_shared;
+      ui.send_images.checked = !!s.send_images;
+      ui.image_quality.value = s.image_quality;
+      ui.cot_visible.checked = !!s.cot_visible;
+      ui.effort_level.value = s.effort_level;
+      ui.context_length.value = s.context_length;
+      ui.context_length_value.textContent = String(s.context_length);
+      ui.max_tokens.value = s.max_tokens;
+      ui.n_choices.value = s.n;
+      ui.stream.checked = !!s.stream;
+      ui.temperature.value = s.temperature;
+      ui.temperature_value.textContent = Number(s.temperature).toFixed(2);
+      ui.top_p.value = s.top_p;
+      ui.top_p_value.textContent = Number(s.top_p).toFixed(2);
+      ui.freq_penalty.value = s.frequency_penalty;
+      ui.freq_penalty_value.textContent = Number(s.frequency_penalty).toFixed(2);
+      ui.pres_penalty.value = s.presence_penalty;
+      ui.pres_penalty_value.textContent = Number(s.presence_penalty).toFixed(2);
+      // shared summary
+      const id = s.shared_key_id ? String(s.shared_key_id) : '';
+      const prov = s.provider ? String(s.provider) : '';
+      if (s.use_shared && id) {
+        ui.shared_id.textContent = id;
+        ui.shared_provider.textContent = prov || 'deepseek';
+        ui.shared_summary.classList.remove('d-none');
+      } else {
+        ui.shared_summary.classList.add('d-none');
+        ui.shared_id.textContent = '';
+        ui.shared_provider.textContent = '';
+      }
+    }
+
+    function collect() {
+      const s = getSettings();
+      s.use_shared = !!ui.use_shared.checked;
+      s.send_images = !!ui.send_images.checked;
+      s.image_quality = ui.image_quality.value;
+      s.cot_visible = !!ui.cot_visible.checked;
+      s.effort_level = ui.effort_level.value;
+      s.context_length = Number(ui.context_length.value);
+      s.max_tokens = Number(ui.max_tokens.value);
+      s.n = Number(ui.n_choices.value);
+      s.stream = !!ui.stream.checked;
+      s.temperature = Number(ui.temperature.value);
+      s.top_p = Number(ui.top_p.value);
+      s.frequency_penalty = Number(ui.freq_penalty.value);
+      s.presence_penalty = Number(ui.pres_penalty.value);
+      return s;
+    }
+
+    // live value labels
+    ui.context_length.addEventListener('input', () => ui.context_length_value.textContent = ui.context_length.value);
+    ui.temperature.addEventListener('input', () => ui.temperature_value.textContent = Number(ui.temperature.value).toFixed(2));
+    ui.top_p.addEventListener('input', () => ui.top_p_value.textContent = Number(ui.top_p.value).toFixed(2));
+    ui.freq_penalty.addEventListener('input', () => ui.freq_penalty_value.textContent = Number(ui.freq_penalty.value).toFixed(2));
+    ui.pres_penalty.addEventListener('input', () => ui.pres_penalty_value.textContent = Number(ui.pres_penalty.value).toFixed(2));
+
+    // actions
+    ui.saveBtn.addEventListener('click', () => {
+      const s = collect();
+      setSettings(s);
+      ui.saveAlert.classList.remove('d-none');
+      setTimeout(() => ui.saveAlert.classList.add('d-none'), 2000);
+    });
+    ui.resetBtn.addEventListener('click', () => {
+      setSettings({ ...defaults });
+      render(getSettings());
+    });
+
+    render(getSettings());
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

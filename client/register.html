@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>私人助手BOT 注册</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body class="bg-light d-flex align-items-center" style="min-height:100vh;">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-12 col-sm-8 col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h4 class="card-title mb-3 text-center">注册 私人助手BOT</h4>
+            <div id="alert" class="alert alert-danger d-none" role="alert"></div>
+            <form id="registerForm">
+              <div class="mb-3">
+                <label for="name" class="form-label">昵称</label>
+                <input type="text" id="name" class="form-control" />
+              </div>
+              <div class="mb-3">
+                <label for="account" class="form-label">账号</label>
+                <!-- 账号仅允许字母/数字/下划线；长度 3-100。HTML pattern 先做基础校验，JS 再二次校验。 -->
+                <input type="text" id="account" class="form-control" required pattern="\\w{3,100}" title="仅字母、数字、下划线；3-100位" />
+              </div>
+              <div class="mb-3">
+                <label for="password" class="form-label">密码</label>
+                <input type="password" id="password" class="form-control" required />
+              </div>
+              <button type="submit" class="btn btn-success w-100">注册</button>
+            </form>
+            <div class="text-center mt-3">
+              <a href="index.html">已有账号？去登录</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module">
+    import { request } from './js/api.js';
+    const form = document.getElementById('registerForm');
+    const alertEl = document.getElementById('alert');
+    /**
+     * 注册表单提交处理函数
+     * 功能：读取账号/密码/昵称并调用后端注册接口；成功后跳转登录页。
+     * 参数：事件对象（阻止默认提交）。
+     * 返回：无（通过导航行为反馈）。
+     */
+    async function handleRegisterSubmit(e) {
+      e.preventDefault();
+      alertEl.classList.add('d-none');
+
+      const name = document.getElementById('name').value.trim();
+      const account = document.getElementById('account').value.trim();
+      const password = document.getElementById('password').value;
+
+      // 二次校验账号格式（与后端一致，仅字母/数字/下划线，3-100 位）
+      if (!/^\w{3,100}$/.test(account)) {
+        alertEl.textContent = '账号格式不合法：仅允许字母、数字、下划线，长度 3-100';
+        alertEl.classList.remove('d-none');
+        return;
+      }
+
+      try {
+        // 注册接口：邮箱已去除，后端会在未提供邮箱时生成占位邮箱
+        await request('/auth/register', { method: 'POST', body: JSON.stringify({ account, password, name }) });
+        // 成功后跳转到登录页
+        window.location.href = 'index.html';
+      } catch (err) {
+        // 显示后端返回错误信息（统一用 message）
+        alertEl.textContent = '注册失败：' + (err && err.message ? err.message : '未知错误');
+        alertEl.classList.remove('d-none');
+      }
+    }
+
+    form.addEventListener('submit', handleRegisterSubmit);
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>私人助手BOT 用户配置</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <!-- 统一导航：公共 header 片段注入容器 -->
+  <div id="header-root"></div>
+
+  <main class="container py-4">
+    <h3 class="mb-3">我的资料</h3>
+    <div id="alert" class="alert alert-danger d-none" role="alert"></div>
+    <form id="profileForm" class="col-12 col-md-8 col-lg-6">
+      <div class="mb-3">
+        <label class="form-label">个人简介</label>
+        <textarea id="bio" class="form-control" rows="4" placeholder="写点什么吧"></textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">头像地址（URL）</label>
+        <input id="avatar" class="form-control" placeholder="https://..." />
+      </div>
+      <button type="submit" class="btn btn-primary">保存</button>
+    </form>
+
+    <div class="mt-4">
+      <h5>预览</h5>
+      <div class="d-flex align-items-center gap-3">
+        <img id="avatarPreview" src="" alt="avatar" class="rounded" style="width:64px;height:64px;object-fit:cover;border:1px solid #ddd;border-radius:12px;" />
+        <p id="bioPreview" class="mb-0 text-muted">暂无简介</p>
+      </div>
+    </div>
+
+    <hr class="my-4" />
+
+    <h3 class="mb-3">我的 API Keys</h3>
+    <form id="keyForm" class="col-12 col-md-8 col-lg-6 mb-3">
+      <div class="mb-3">
+        <label class="form-label">标签（可选）</label>
+        <input type="text" id="keyLabel" class="form-control" placeholder="例如：DeepSeek 备用Key" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">DeepSeek API Key</label>
+        <input id="keyValue" class="form-control" placeholder="sk-..." autocomplete="off" />
+      </div>
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="keyShared">
+        <label class="form-check-label" for="keyShared">共享到共享池</label>
+        <div class="form-text">勾选后，该 Key 将作为共享池可用（不会显示明文）。</div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-6">
+          <label class="form-label">base_url（可选）</label>
+          <input id="keyBaseUrl" class="form-control" placeholder="https://api.deepseek.com/v1" />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">默认模型（可选）</label>
+          <input id="keyModel" class="form-control" placeholder="deepseek-chat" />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success">添加</button>
+      <p class="text-muted mt-2" style="font-size:0.9em;">提示：多个 key 可共存，聊天页可选择；我们不会在前端显示完整 key。</p>
+    </form>
+
+    <div class="table-responsive col-12 col-md-8 col-lg-6">
+      <table class="table table-striped align-middle">
+        <thead><tr><th>ID</th><th>标签</th><th>提供方</th><th>共享</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody id="keysRows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script type="module">
+    import { ensureAuth } from './js/auth.js';
+    import { request } from './js/api.js';
+    import { injectHeader } from './js/header.js';
+    const user = await ensureAuth();
+    // 注入统一导航（自动标记 active，处理 Admin 显示与登出）
+    await injectHeader();
+
+    const alertEl = document.getElementById('alert');
+    const formEl = document.getElementById('profileForm');
+    const bioEl = document.getElementById('bio');
+    const avatarEl = document.getElementById('avatar');
+    const bioPreviewEl = document.getElementById('bioPreview');
+    const avatarPreviewEl = document.getElementById('avatarPreview');
+
+    // API Keys 相关元素
+    const keyForm = document.getElementById('keyForm');
+    const keyLabelEl = document.getElementById('keyLabel');
+    const keyValueEl = document.getElementById('keyValue');
+    const keySharedEl = document.getElementById('keyShared');
+    const keyBaseUrlEl = document.getElementById('keyBaseUrl');
+    const keyModelEl = document.getElementById('keyModel');
+    const keysRowsEl = document.getElementById('keysRows');
+
+    /**
+     * 加载用户资料并填充表单
+     * @returns {Promise<void>} 无返回；失败时展示错误提示
+     */
+    async function loadProfile() {
+      alertEl.classList.add('d-none');
+      try {
+        const data = await request('/profiles/me');
+        const p = data.profile || { bio: '', avatar_url: '' };
+        bioEl.value = p.bio || '';
+        avatarEl.value = p.avatar_url || '';
+        bioPreviewEl.textContent = p.bio || '暂无简介';
+        avatarPreviewEl.src = p.avatar_url || '';
+      } catch (err) {
+        alertEl.textContent = '加载失败：' + err.message;
+        alertEl.classList.remove('d-none');
+      }
+    }
+
+    /**
+     * 提交资料更新
+     * @param {SubmitEvent} e 表单事件
+     */
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      alertEl.classList.add('d-none');
+      try {
+        await request('/profiles/me', { method: 'PUT', body: JSON.stringify({ bio: bioEl.value, avatar_url: avatarEl.value }) });
+        await loadProfile();
+      } catch (err) {
+        alertEl.textContent = '保存失败：' + err.message;
+        alertEl.classList.remove('d-none');
+      }
+    });
+
+    /**
+     * 加载我的 API Keys 列表
+     * @returns {Promise<void>}
+     */
+    async function loadKeys() {
+      try {
+        const data = await request('/keys');
+        keysRowsEl.innerHTML = '';
+        (data.keys || []).forEach(k => {
+          const tr = document.createElement('tr');
+          const tdId = document.createElement('td'); tdId.textContent = k.id;
+          const tdLabel = document.createElement('td'); tdLabel.textContent = k.label || '';
+          const tdProv = document.createElement('td'); tdProv.textContent = k.provider || '';
+          const tdShared = document.createElement('td'); tdShared.textContent = k.is_shared ? '是' : '否';
+          const tdCreated = document.createElement('td'); tdCreated.textContent = new Date(k.created_at).toLocaleString();
+          const tdOps = document.createElement('td');
+      
+          const btnShareToggle = document.createElement('button');
+          btnShareToggle.className = 'btn btn-sm btn-outline-secondary me-2';
+          btnShareToggle.textContent = k.is_shared ? '取消共享' : '共享';
+          btnShareToggle.dataset.action = k.is_shared ? 'unshare' : 'share';
+          btnShareToggle.dataset.id = String(k.id);
+          tdOps.appendChild(btnShareToggle);
+      
+          const btnConfig = document.createElement('button');
+          btnConfig.className = 'btn btn-sm btn-outline-info me-2';
+          btnConfig.textContent = '配置';
+          btnConfig.dataset.action = 'config';
+          btnConfig.dataset.id = String(k.id);
+          btnConfig.dataset.shared = k.is_shared ? '1' : '0';
+          tdOps.appendChild(btnConfig);
+      
+          const btnDel = document.createElement('button');
+          btnDel.className = 'btn btn-sm btn-outline-danger';
+          btnDel.textContent = '删除';
+          btnDel.dataset.action = 'delete';
+          btnDel.dataset.id = String(k.id);
+          tdOps.appendChild(btnDel);
+      
+          tr.appendChild(tdId);
+          tr.appendChild(tdLabel);
+          tr.appendChild(tdProv);
+          tr.appendChild(tdShared);
+          tr.appendChild(tdCreated);
+          tr.appendChild(tdOps);
+          keysRowsEl.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Load keys failed', err);
+      }
+    }
+
+    /**
+     * 提交新增 Key
+     * @param {SubmitEvent} e 表单事件
+     */
+    keyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const label = keyLabelEl.value.trim();
+      const key = keyValueEl.value.trim();
+      if (!label || !key) {
+        alert('请输入标签和Key');
+        return;
+      }
+      const cfg = {};
+      if (keyBaseUrlEl.value.trim()) cfg.base_url = keyBaseUrlEl.value.trim();
+      if (keyModelEl.value.trim()) cfg.model = keyModelEl.value.trim();
+      const body = {
+        provider: 'deepseek',
+        label,
+        api_key: key,
+        is_shared: !!keySharedEl.checked,
+      };
+      if (Object.keys(cfg).length > 0) body.config = cfg;
+      await request('/keys', { method: 'POST', body: JSON.stringify(body) });
+      keyLabelEl.value = '';
+      keyValueEl.value = '';
+      keySharedEl.checked = false;
+      keyBaseUrlEl.value = '';
+      keyModelEl.value = '';
+      await loadKeys();
+    });
+
+    /**
+     * 处理 Keys 列表操作（删除/共享/取消共享/更新配置）
+     * @param {MouseEvent} e 点击事件
+     */
+    keysRowsEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      if (action === 'delete') {
+        if (!confirm('确认删除该Key？')) return;
+        await request(`/keys/${id}`, { method: 'DELETE' });
+        await loadKeys();
+        return;
+      }
+      if (action === 'share') {
+        await request(`/keys/${id}/share`, { method: 'PATCH', body: JSON.stringify({ is_shared: true }) });
+        await loadKeys();
+        return;
+      }
+      if (action === 'unshare') {
+        await request(`/keys/${id}/share`, { method: 'PATCH', body: JSON.stringify({ is_shared: false }) });
+        await loadKeys();
+        return;
+      }
+      if (action === 'config') {
+        const base_url = prompt('设置 base_url（留空保持不变）', '');
+        const model = prompt('设置 model（留空保持不变）', '');
+        const cfg = {};
+        if (base_url && base_url.trim()) cfg.base_url = base_url.trim();
+        if (model && model.trim()) cfg.model = model.trim();
+        if (Object.keys(cfg).length === 0) {
+          alert('未更新配置');
+          return;
+        }
+        const shared = btn.dataset.shared === '1';
+        await request(`/keys/${id}/share`, { method: 'PATCH', body: JSON.stringify({ is_shared: shared, config: cfg }) });
+        await loadKeys();
+        return;
+      }
+    });
+
+    await loadProfile();
+    await loadKeys();
+
+    // -----------------------
+    // 共享池配置（整合共享API界面到本页）
+    // -----------------------
+    // UI 结构：在 Keys 列表下方插入共享池浏览卡片
+    const container = document.querySelector('main.container');
+    const sharedCard = document.createElement('div');
+    sharedCard.className = 'card mt-4';
+    sharedCard.innerHTML = `
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <strong>共享池配置</strong>
+          <span class="text-muted ms-2">取用共享配置以用于聊天</span>
+        </div>
+        <div>
+          <button id="sharedClearAdoptBtn" class="btn btn-sm btn-outline-secondary">清除取用</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="sharedAdoptStatus" class="alert alert-info d-flex justify-content-between align-items-center d-none">
+          <div id="sharedAdoptStatusText">当前未取用任何共享配置。</div>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <div class="input-group">
+              <label class="input-group-text" for="sharedProviderSelect">Provider</label>
+              <select id="sharedProviderSelect" class="form-select">
+                <option value="">全部</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+              <button id="sharedRefreshBtn" class="btn btn-primary">刷新</button>
+            </div>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 80px;">ID</th>
+                <th style="width: 120px;">Provider</th>
+                <th style="width: 220px;">标签</th>
+                <th style="width: 180px;">共享时间</th>
+                <th>配置（摘要）</th>
+                <th style="width: 160px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="sharedListBody">
+              <tr>
+                <td colspan="6" class="text-center text-muted">加载中...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    container.appendChild(sharedCard);
+
+    // 工具函数与状态
+    function getTuningSettings() {
+      try { const raw = localStorage.getItem('tuningSettings'); return raw ? (JSON.parse(raw) || {}) : {}; } catch { return {}; }
+    }
+    function setTuningSettings(obj) {
+      try { localStorage.setItem('tuningSettings', JSON.stringify(obj || {})); } catch {}
+    }
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function escapeAttr(str) { return String(str).replace(/[&<>"']/g, ''); }
+    function formatDate(val) { if (!val) return ''; try { return new Date(val).toLocaleString(); } catch { return String(val); } }
+    function renderConfigSummary(config_json) {
+      if (!config_json) return '-';
+      let obj = null;
+      if (typeof config_json === 'string') { try { obj = JSON.parse(config_json); } catch { obj = null; } }
+      else if (typeof config_json === 'object') { obj = config_json; }
+      if (!obj) return '配置解析失败';
+      const base = obj.base_url ? `base_url=${String(obj.base_url)}` : '';
+      const model = obj.model ? `model=${String(obj.model)}` : '';
+      const extras = [];
+      if (obj.api_version) extras.push(`api_version=${String(obj.api_version)}`);
+      if (obj.timeout) extras.push(`timeout=${String(obj.timeout)}`);
+      const parts = [base, model, ...extras].filter(Boolean);
+      if (parts.length === 0) return '(空配置)';
+      return escapeHtml(parts.join(' • '));
+    }
+
+    // 共享池取用/清除
+    function adoptSelection(id, provider) {
+      const tune = getTuningSettings();
+      tune.use_shared = true;
+      tune.shared_key_id = Number(id);
+      tune.provider = provider || (tune.provider || 'deepseek');
+      setTuningSettings(tune);
+      updateSharedAdoptStatus();
+      loadSharedList();
+    }
+    function clearSelection() {
+      const tune = getTuningSettings();
+      delete tune.shared_key_id;
+      tune.use_shared = false;
+      setTuningSettings(tune);
+      updateSharedAdoptStatus();
+      loadSharedList();
+    }
+
+    function updateSharedAdoptStatus() {
+      const adoptStatus = document.getElementById('sharedAdoptStatus');
+      const adoptStatusText = document.getElementById('sharedAdoptStatusText');
+      const tune = getTuningSettings();
+      if (tune.use_shared && tune.shared_key_id) {
+        const provider = (tune.provider || 'deepseek');
+        adoptStatus.classList.remove('d-none');
+        adoptStatusText.textContent = `当前已取用共享配置：#${tune.shared_key_id} (${provider})。该配置将用于会话发送。`;
+      } else {
+        adoptStatus.classList.add('d-none');
+        adoptStatusText.textContent = '当前未取用任何共享配置。';
+      }
+    }
+
+    // 共享列表加载（带 10s 超时）
+    async function loadSharedList() {
+      const providerSelect = document.getElementById('sharedProviderSelect');
+      const listBody = document.getElementById('sharedListBody');
+      const provider = providerSelect.value.trim();
+      let url = '/keys/shared';
+      if (provider) url += `?provider=${encodeURIComponent(provider)}`;
+      listBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">加载中...</td></tr>`;
+      const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const data = await request(url, { method: 'GET', signal: controller.signal });
+        clearTimeout(timer);
+        const rows = Array.isArray(data?.keys) ? data.keys : [];
+        const tune = getTuningSettings();
+        const currentId = String(tune.shared_key_id || '');
+        const currentProv = String(tune.provider || '').toLowerCase();
+        const usingShared = !!tune.use_shared;
+        if (rows.length === 0) { listBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">暂无共享密钥</td></tr>`; return; }
+        const html = rows.map(k => {
+          const cfgText = renderConfigSummary(k.config_json);
+          const created = formatDate(k.created_at);
+          const prov = String(k.provider || '');
+          const isCurrent = usingShared && currentId === String(k.id) && (!currentProv || currentProv === prov.toLowerCase());
+          const actionCell = isCurrent
+            ? `<span class="badge bg-success me-2">已取用</span><button class="btn btn-sm btn-outline-danger" data-action="clear" data-id="${escapeAttr(String(k.id))}" data-provider="${escapeAttr(prov)}">取消取用</button>`
+            : `<button class="btn btn-sm btn-primary" data-action="adopt" data-id="${escapeAttr(String(k.id))}" data-provider="${escapeAttr(prov)}">取用配置</button>`;
+          return `
+            <tr>
+              <td>${escapeHtml(String(k.id))}</td>
+              <td>${escapeHtml(prov)}</td>
+              <td>${escapeHtml(String(k.label || ''))}</td>
+              <td>${escapeHtml(created)}</td>
+              <td class="config-cell"><span class="badge bg-secondary">${cfgText}</span></td>
+              <td class="text-center">${actionCell}</td>
+            </tr>
+          `;
+        }).join('');
+        listBody.innerHTML = html;
+      } catch (err) {
+        const isAbort = err && (err.name === 'AbortError' || /aborted|timeout/i.test(String(err.message || '')));
+        const msg = isAbort ? '请求超时，请检查服务器或网络连接。' : (err?.message || '未知错误');
+        listBody.innerHTML = `<tr><td colspan="6" class="text-danger text-center">加载失败：${escapeHtml(msg)}</td></tr>`;
+      } finally { clearTimeout(timer); }
+    }
+
+    // 共享列表交互绑定
+    document.getElementById('sharedProviderSelect').addEventListener('change', loadSharedList);
+    document.getElementById('sharedRefreshBtn').addEventListener('click', loadSharedList);
+    document.getElementById('sharedListBody').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      const provider = (btn.dataset.provider || '').toLowerCase();
+      if (action === 'adopt') adoptSelection(id, provider);
+      else if (action === 'clear') clearSelection();
+    });
+    document.getElementById('sharedClearAdoptBtn').addEventListener('click', clearSelection);
+
+    // 首次加载共享池状态与列表（仅在已登录时）
+    updateSharedAdoptStatus();
+    if (user) loadSharedList();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

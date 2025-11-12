@@ -1,0 +1,30 @@
+<!--
+  统一导航片段（Windows 路径示例：E:\AAAchat\client\partials\header.html）
+  此片段将被各页面通过脚本动态注入，确保导航一致。
+  链接包含：首页、用户配置、参数、规划助手；Admin 默认隐藏仅管理员显示。
+-->
+<nav class="navbar navbar-expand-lg bg-body-tertiary">
+  <div class="container-fluid">
+    <!-- 品牌名称统一为“私人助手BOT” -->
+    <a class="navbar-brand" href="#">私人助手BOT</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarsMain" aria-controls="#navbarsMain" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarsMain">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <!-- 不设置 active，注入脚本根据当前页面自动标记 -->
+        <li class="nav-item"><a class="nav-link" href="dashboard.html" data-route="dashboard">首页</a></li>
+        <li class="nav-item"><a class="nav-link" href="chat.html" data-route="chat">对话</a></li>
+        <li class="nav-item"><a class="nav-link" href="profile.html" data-route="profile">用户配置</a></li>
+        <li class="nav-item"><a class="nav-link" href="params.html" data-route="params">参数</a></li>
+        <li class="nav-item"><a class="nav-link" href="planner.html" data-route="planner">规划助手</a></li>
+        <!-- Admin 默认隐藏，仅在满足条件时显示 -->
+        <li id="adminNavItem" class="nav-item d-none"><a class="nav-link" href="admin.html" data-route="admin">Admin</a></li>
+      </ul>
+      <div class="d-flex"><button id="logoutBtn" class="btn btn-outline-danger btn-sm">登出</button></div>
+    </div>
+  </div>
+  <!--
+    注意：此处仅是片段，Bootstrap JS 由各页面单独引入。
+  -->
+</nav>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>共享 API 配置浏览</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    .json-badge { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+    .config-cell { max-width: 420px; white-space: pre-wrap; word-break: break-word; }
+    .table td, .table th { vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <!-- 统一导航：公共 header 片段注入容器 -->
+  <div id="header-root"></div>
+
+  <div class="container">
+    <div class="row mb-3">
+      <div class="col-md-8">
+        <h2 class="h4 mb-0">共享 API 浏览</h2>
+        <small class="text-muted">来自共享池的密钥及其配置（不显示明文密钥）。</small>
+      </div>
+      <div class="col-md-4 text-md-end mt-3 mt-md-0">
+        <div class="input-group">
+          <label class="input-group-text" for="providerSelect">Provider</label>
+          <select id="providerSelect" class="form-select">
+            <option value="">全部</option>
+            <option value="deepseek">DeepSeek</option>
+          </select>
+          <button id="refreshBtn" class="btn btn-primary">刷新</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="adoptStatus" class="alert alert-info d-flex justify-content-between align-items-center d-none">
+      <div id="adoptStatusText">当前未取用任何共享配置。</div>
+      <div>
+        <button id="clearAdoptBtn" class="btn btn-sm btn-outline-secondary">清除取用</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 80px;">ID</th>
+                <th style="width: 120px;">Provider</th>
+                <th style="width: 220px;">标签</th>
+                <th style="width: 180px;">共享时间</th>
+                <th>配置（摘要）</th>
+                <th style="width: 160px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="listBody">
+              <tr>
+                <td colspan="6" class="text-center text-muted">加载中...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { ensureAuth } from './js/auth.js';
+    import { request } from './js/api.js';
+    import { injectHeader } from './js/header.js';
+
+    const user = await ensureAuth();
+    // 若未登录，ensureAuth 将触发跳转；此处仅展示占位提示但不继续加载列表（避免顶层 return 语法错误）。
+    if (!user) {
+      const listBody = document.getElementById('listBody');
+      if (listBody) listBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">正在跳转到登录页...</td></tr>`;
+    }
+
+    // 注入统一导航（自动标记 active，处理 Admin 显示与登出）
+    await injectHeader();
+
+    const providerSelect = document.getElementById('providerSelect');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const listBody = document.getElementById('listBody');
+    const adoptStatus = document.getElementById('adoptStatus');
+    const adoptStatusText = document.getElementById('adoptStatusText');
+    const clearAdoptBtn = document.getElementById('clearAdoptBtn');
+
+    function getTuningSettings() {
+      try {
+        const raw = localStorage.getItem('tuningSettings');
+        return raw ? (JSON.parse(raw) || {}) : {};
+      } catch { return {}; }
+    }
+    function setTuningSettings(obj) {
+      try { localStorage.setItem('tuningSettings', JSON.stringify(obj || {})); } catch {}
+    }
+
+    // 为共享列表请求添加超时控制，避免网络阻塞导致页面卡住
+    async function requestWithTimeout(url, options = {}, timeoutMs = 10000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await request(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function updateAdoptStatus() {
+      const tune = getTuningSettings();
+      if (tune.use_shared && tune.shared_key_id) {
+        const provider = (tune.provider || 'deepseek');
+        adoptStatus.classList.remove('d-none');
+        adoptStatusText.textContent = `当前已取用共享配置：#${tune.shared_key_id} (${provider})。该配置将用于会话发送。`;
+        clearAdoptBtn.disabled = false;
+      } else {
+        adoptStatus.classList.add('d-none');
+        adoptStatusText.textContent = '当前未取用任何共享配置。';
+        clearAdoptBtn.disabled = true;
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function escapeAttr(str) {
+      return String(str).replace(/[&<>"']/g, '');
+    }
+
+    function formatDate(val) {
+      if (!val) return '';
+      try { return new Date(val).toLocaleString(); } catch { return String(val); }
+    }
+
+    function renderConfigSummary(config_json) {
+      if (!config_json) return '-';
+      let obj = null;
+      if (typeof config_json === 'string') {
+        try { obj = JSON.parse(config_json); } catch { obj = null; }
+      } else if (typeof config_json === 'object') {
+        obj = config_json;
+      }
+      if (!obj) return '配置解析失败';
+      const base = obj.base_url ? `base_url=${String(obj.base_url)}` : '';
+      const model = obj.model ? `model=${String(obj.model)}` : '';
+      const extras = [];
+      if (obj.api_version) extras.push(`api_version=${String(obj.api_version)}`);
+      if (obj.timeout) extras.push(`timeout=${String(obj.timeout)}`);
+      const parts = [base, model, ...extras].filter(Boolean);
+      if (parts.length === 0) return '(空配置)';
+      return escapeHtml(parts.join(' • '));
+    }
+
+    function adoptSelection(id, provider) {
+      const tune = getTuningSettings();
+      tune.use_shared = true;
+      tune.shared_key_id = Number(id);
+      tune.provider = provider || (tune.provider || 'deepseek');
+      setTuningSettings(tune);
+      updateAdoptStatus();
+      loadShared();
+    }
+    function clearSelection() {
+      const tune = getTuningSettings();
+      delete tune.shared_key_id;
+      tune.use_shared = false;
+      setTuningSettings(tune);
+      updateAdoptStatus();
+      loadShared();
+    }
+
+    async function loadShared() {
+      const provider = providerSelect.value.trim();
+      let url = '/keys/shared';
+      if (provider) url += `?provider=${encodeURIComponent(provider)}`;
+      listBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">加载中...</td></tr>`;
+      try {
+        const data = await requestWithTimeout(url, { method: 'GET' }, 10000);
+        const rows = Array.isArray(data?.keys) ? data.keys : [];
+        const tune = getTuningSettings();
+        const currentId = String(tune.shared_key_id || '');
+        const currentProv = String(tune.provider || '').toLowerCase();
+        const usingShared = !!tune.use_shared;
+        if (rows.length === 0) {
+          listBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">暂无共享密钥</td></tr>`;
+          return;
+        }
+        const html = rows.map(k => {
+          const cfgText = renderConfigSummary(k.config_json);
+          const created = formatDate(k.created_at);
+          const prov = String(k.provider || '');
+          const isCurrent = usingShared && currentId === String(k.id) && (!currentProv || currentProv === prov.toLowerCase());
+          const actionCell = isCurrent
+            ? `<span class="badge bg-success me-2">已取用</span><button class="btn btn-sm btn-outline-danger" data-action="clear" data-id="${escapeAttr(String(k.id))}" data-provider="${escapeAttr(prov)}">取消取用</button>`
+            : `<button class="btn btn-sm btn-primary" data-action="adopt" data-id="${escapeAttr(String(k.id))}" data-provider="${escapeAttr(prov)}">取用配置</button>`;
+          return `
+            <tr>
+              <td>${escapeHtml(String(k.id))}</td>
+              <td>${escapeHtml(prov)}</td>
+              <td>${escapeHtml(String(k.label || ''))}</td>
+              <td>${escapeHtml(created)}</td>
+              <td class="config-cell"><span class="badge bg-secondary json-badge">${cfgText}</span></td>
+              <td class="text-center">${actionCell}</td>
+            </tr>
+          `;
+        }).join('');
+        listBody.innerHTML = html;
+      } catch (err) {
+        console.error(err);
+        const isAbort = err && (err.name === 'AbortError' || /aborted|timeout/i.test(String(err.message || '')));
+        const msg = isAbort ? '请求超时，请检查服务器或网络连接。' : (err?.message || '未知错误');
+        listBody.innerHTML = `<tr><td colspan="6" class="text-danger text-center">加载失败：${escapeHtml(msg)}</td></tr>`;
+      }
+    }
+
+    providerSelect.addEventListener('change', loadShared);
+    refreshBtn.addEventListener('click', loadShared);
+    listBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      const provider = (btn.dataset.provider || '').toLowerCase();
+      if (action === 'adopt') adoptSelection(id, provider);
+      else if (action === 'clear') clearSelection();
+    });
+    clearAdoptBtn.addEventListener('click', clearSelection);
+
+    // 首次加载：仅在已登录时触发列表加载
+    updateAdoptStatus();
+    if (user) loadShared();
+  </script>
+</body>
+</html>

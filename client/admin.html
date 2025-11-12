@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>私人助手BOT 管理面板</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <!-- 统一导航：公共 header 片段注入容器 -->
+  <div id="header-root"></div>
+
+  <main class="container py-4">
+    <h3 class="mb-3">用户管理</h3>
+    <div id="alert" class="alert alert-danger d-none" role="alert"></div>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead><tr><th>ID</th><th>邮箱</th><th>昵称</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody id="userRows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script type="module">
+    import { ensureAdmin } from './js/auth.js';
+    import { request } from './js/api.js';
+    import { injectHeader } from './js/header.js';
+    const user = await ensureAdmin();
+    // 注入统一导航（自动标记 active，处理 Admin 显示与登出）
+    await injectHeader();
+
+    const alertEl = document.getElementById('alert');
+    const rowsEl = document.getElementById('userRows');
+
+    async function loadUsers() {
+      alertEl.classList.add('d-none');
+      try {
+        const data = await request('/users');
+        rowsEl.innerHTML = '';
+        data.users.forEach(u => {
+          const tr = document.createElement('tr');
+          const tdId = document.createElement('td'); tdId.textContent = String(u.id);
+          const tdEmail = document.createElement('td'); tdEmail.textContent = String(u.email || '');
+          const tdName = document.createElement('td'); tdName.textContent = String(u.name || '');
+          const tdRole = document.createElement('td');
+          const roleBadge = document.createElement('span');
+          roleBadge.className = `badge text-bg-${u.role==='admin'?'danger':'secondary'}`;
+          roleBadge.textContent = u.role;
+          tdRole.appendChild(roleBadge);
+          const tdCreated = document.createElement('td'); tdCreated.textContent = new Date(u.created_at).toLocaleString();
+          const tdOps = document.createElement('td');
+          const btnAdmin = document.createElement('button');
+          btnAdmin.className = 'btn btn-sm btn-outline-primary me-1';
+          btnAdmin.textContent = '设为管理员';
+          btnAdmin.dataset.action = 'role';
+          btnAdmin.dataset.id = String(u.id);
+          btnAdmin.dataset.role = 'admin';
+          const btnUser = document.createElement('button');
+          btnUser.className = 'btn btn-sm btn-outline-secondary me-1';
+          btnUser.textContent = '设为用户';
+          btnUser.dataset.action = 'role';
+          btnUser.dataset.id = String(u.id);
+          btnUser.dataset.role = 'user';
+          const btnDel = document.createElement('button');
+          btnDel.className = 'btn btn-sm btn-outline-danger';
+          btnDel.textContent = '删除';
+          btnDel.dataset.action = 'delete';
+          btnDel.dataset.id = String(u.id);
+          tdOps.appendChild(btnAdmin);
+          tdOps.appendChild(btnUser);
+          tdOps.appendChild(btnDel);
+          tr.appendChild(tdId);
+          tr.appendChild(tdEmail);
+          tr.appendChild(tdName);
+          tr.appendChild(tdRole);
+          tr.appendChild(tdCreated);
+          tr.appendChild(tdOps);
+          rowsEl.appendChild(tr);
+        });
+      } catch (err) {
+        alertEl.textContent = '加载用户失败：' + err.message;
+        alertEl.classList.remove('d-none');
+      }
+    }
+
+    rowsEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const action = btn.getAttribute('data-action');
+      try {
+        if (action === 'role') {
+          const role = btn.getAttribute('data-role');
+          await request(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ role }) });
+        } else if (action === 'delete') {
+          await request(`/users/${id}`, { method: 'DELETE' });
+        }
+        await loadUsers();
+      } catch (err) {
+        alertEl.textContent = '操作失败：' + err.message;
+        alertEl.classList.remove('d-none');
+      }
+    });
+
+    await loadUsers();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

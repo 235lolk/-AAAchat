@@ -1,0 +1,44 @@
+version: "3.9"
+name: assistantbot
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: assistantbot-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: aaachat
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docs/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./docs/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: assistantbot-app:latest
+    container_name: assistantbot-app
+    depends_on:
+      - db
+    environment:
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: example
+      DB_NAME: aaachat
+      # Optional DeepSeek endpoint envs
+      # DEEPSEEK_BASE_URL: "https://api.deepseek.com/chat/completions"
+      # DEEPSEEK_ENABLE_VISION: "1"
+    ports:
+      - "3003:3000"
+    volumes:
+      - ./server/uploads:/app/server/uploads
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

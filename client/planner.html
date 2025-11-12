@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 规划助手</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- 统一导航：公共 header 片段注入容器 -->
+  <div id="header-root"></div>
+
+  <div class="container my-4">
+    <h3 class="mb-3">目标到计划：一键生成结构化计划表</h3>
+    <div id="alert" class="alert alert-warning d-none"></div>
+
+    <form id="planForm" class="card card-body mb-4">
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">目标描述（必填）</label>
+          <input type="text" class="form-control" id="goal" placeholder="例如：两周内完成公司官网改版" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">约束条件（可选）</label>
+          <input type="text" class="form-control" id="constraints" placeholder="如：预算限制、仅使用现有组件库">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">建议步骤数（可选）</label>
+          <input type="number" min="1" max="20" class="form-control" id="stepsCount" placeholder="5">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">计划总天数（可选）</label>
+          <input type="number" min="1" max="365" step="1" class="form-control" id="days" placeholder="例如：14">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">整体截止日期（可选）</label>
+          <input type="date" class="form-control" id="deadline">
+        </div>
+      </div>
+      <div class="mt-3 d-flex align-items-center gap-3">
+        <button type="submit" class="btn btn-primary">生成计划</button>
+        <span id="adoptHint" class="text-muted small">模型配置：优先使用共享池（若已设置）。</span>
+      </div>
+    </form>
+
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>计划表</span>
+            <div class="d-flex gap-2">
+              <button id="savePlanBtn" class="btn btn-primary btn-sm">保存计划</button>
+              <button id="saveAsNewPlanBtn" class="btn btn-outline-primary btn-sm">另存为新计划</button>
+              <button id="exportJsonBtn" class="btn btn-outline-secondary btn-sm">导出 JSON</button>
+              <button id="copyCsvBtn" class="btn btn-outline-secondary btn-sm">复制 CSV</button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-striped table-bordered mb-0">
+                <thead>
+                  <tr>
+                    <th style="width:100px;">DAY</th>
+                    <th style="width:160px;">日期</th>
+                    <th>当日计划</th>
+                    <th style="width:100px;">状态</th>
+                    <th style="width:120px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="planBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <!-- 历史计划列表 -->
+        <div class="card mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>历史计划</span>
+            <div class="d-flex gap-2">
+              <button id="refreshPlansBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <ul id="plansList" class="list-group list-group-flush"></ul>
+          </div>
+        </div>
+        <!-- 对话编辑模块 -->
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>对话修改计划</span>
+            <span class="text-muted small">自然语言调整计划条目</span>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <div id="chatMessages" class="flex-grow-1 overflow-auto border rounded p-2" style="max-height:320px; background:#fafafa;"></div>
+            <div class="mt-2 d-flex gap-2">
+              <input id="chatInput" type="text" class="form-control" placeholder="例如：把第3步截止日期改为2025-12-20 或 标记第2步完成" />
+              <button id="chatSendBtn" class="btn btn-success">发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { request } from './js/api.js';
+    import { ensureAuth } from './js/auth.js';
+    import { injectHeader } from './js/header.js';
+    import { PlanChatEditor } from './js/plan_chat.js';
+
+    // 页面加载先鉴权，未登录则早退避免发起 /api/planner 请求
+    const user = await ensureAuth();
+    const alertEl = document.getElementById('alert');
+    // 注入统一导航（自动标记 active，处理 Admin 显示与登出）
+    await injectHeader();
+
+    /**
+     * 读取本地的模型使用偏好（与 shared.html 同源），用于决定是否使用共享池
+     * Windows 11 下本地存储路径由浏览器管理，无需手工配置。
+     */
+    function getTuningSettings() {
+      try {
+        const raw = localStorage.getItem('tuningSettings');
+        return raw ? (JSON.parse(raw) || {}) : {};
+      } catch { return {}; }
+    }
+
+    const planForm = document.getElementById('planForm');
+    const planBody = document.getElementById('planBody');
+    const exportJsonBtn = document.getElementById('exportJsonBtn');
+    const copyCsvBtn = document.getElementById('copyCsvBtn');
+    const savePlanBtn = document.getElementById('savePlanBtn');
+    const saveAsNewPlanBtn = document.getElementById('saveAsNewPlanBtn');
+    const adoptHint = document.getElementById('adoptHint');
+    const plansListEl = document.getElementById('plansList');
+    const refreshPlansBtn = document.getElementById('refreshPlansBtn');
+
+    // 当前内存中的计划数据（steps 数组），对话编辑与按钮操作均修改此状态
+    let currentSteps = [];
+    let currentPlanId = null; // 当前正在编辑的计划ID，null表示新计划
+
+    /**
+     * 更新“保存计划”按钮文案：当存在 currentPlanId 时显示“更新计划”，否则显示“保存计划”。
+     * 此处不改变行为，仅用于提示用户当前操作语义，避免误覆盖。
+     */
+    function updateSaveButtonLabel() {
+      savePlanBtn.textContent = currentPlanId ? '更新计划' : '保存计划';
+    }
+
+    function setAlert(msg, type = 'warning') {
+      alertEl.textContent = msg;
+      alertEl.className = `alert alert-${type}`;
+      if (!msg) alertEl.classList.add('d-none'); else alertEl.classList.remove('d-none');
+    }
+
+    /**
+     * 渲染计划表
+     * 参数：steps 数组（使用 currentSteps 作为来源）
+     * 显示：列为 DAY / 日期 / 当日计划 / 状态 / 操作；状态为完成时展示“已完成”绿色标签；提供完成/取消完成按钮。
+     */
+    function renderPlan(steps = []) {
+      planBody.innerHTML = '';
+      steps.forEach(s => {
+        const tr = document.createElement('tr');
+        const isDone = String(s.status || '').toLowerCase() === 'done' || String(s.status || '').toLowerCase() === 'completed';
+        const statusText = isDone ? '已完成' : mapStatusLabel(s.status || 'pending');
+        const statusBadge = `<span class="badge ${isDone ? 'bg-success' : 'bg-secondary'}">${statusText}</span>`;
+        const opsBtn = isDone
+          ? `<button class="btn btn-sm btn-outline-secondary" data-action="undo" data-index="${s.index}">取消完成</button>`
+          : `<button class="btn btn-sm btn-outline-success" data-action="done" data-index="${s.index}">标记完成</button>`;
+        tr.innerHTML = `
+          <td>${escapeHtml('DAY ' + (s.index ?? ''))}</td>
+          <td>${escapeHtml(s.due_date || '')}</td>
+          <td>${escapeHtml(s.description)}</td>
+          <td>${statusBadge}</td>
+          <td class="text-center">${opsBtn}</td>
+        `;
+        planBody.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, s => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[s]);
+    }
+
+    // 状态中文映射：仅影响显示与导出，不改变原始数据值
+    function mapStatusLabel(status) {
+      const key = String(status || '').toLowerCase();
+      if (key === 'pending') return '未开始';
+      if (key === 'in_progress') return '进行中';
+      if (key === 'blocked') return '受阻';
+      if (key === 'review') return '评审中';
+      if (key === 'done' || key === 'completed') return '已完成';
+      return escapeHtml(status || '未开始');
+    }
+
+    /**
+     * 导出 CSV（与当前显示列一致）：DAY, 日期, 当日计划, 状态
+     * 注意：为避免依赖 DOM 结构，直接使用 currentSteps 数据。
+     */
+    function toCsv(steps = []) {
+      const header = ['DAY','日期','当日计划','状态'];
+      const rows = steps.map(s => [
+        `DAY ${s.index}`,
+        s.due_date || '',
+        s.description || '',
+        mapStatusLabel(s.status || 'pending'),
+      ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+      return [header.join(','), ...rows].join('\n');
+    }
+
+    // 初始化共享池提示
+    const tune = getTuningSettings();
+    adoptHint.textContent = tune?.adopt_shared ? '模型配置：优先使用共享池。' : '模型配置：使用个人或默认配置。';
+
+    // 生成计划：成功后写入 currentSteps 并渲染表格
+    planForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!user) {
+        setAlert('未登录，正在跳转到登录页…');
+        setTimeout(() => window.location.href = 'index.html', 600);
+        return;
+      }
+      setAlert('正在生成计划，请稍候…', 'info');
+
+      const goal = document.getElementById('goal').value.trim();
+      const constraints = document.getElementById('constraints').value.trim();
+      const stepsCount = Number(document.getElementById('stepsCount').value || 0) || undefined;
+      const daysRaw = document.getElementById('days').value; // 用户自定义总天数（可选）
+      // 输入校验：若填写则必须为 1-365 的整数
+      let days = undefined;
+      if (daysRaw && String(daysRaw).trim() !== '') {
+        const n = Number(daysRaw);
+        if (!Number.isInteger(n) || n < 1 || n > 365) {
+          setAlert('天数需为 1-365 的整数，请修改后再试。', 'warning');
+          return;
+        }
+        days = n;
+      }
+      const deadline = document.getElementById('deadline').value || undefined;
+
+      const payload = {
+        goal,
+        constraints: constraints || undefined,
+        steps_count: stepsCount,
+        days, // 传入后端以按天生成具体计划
+        deadline,
+        use_shared: !!tune?.adopt_shared,
+        shared_key_id: tune?.shared_key_id || undefined,
+      };
+
+      try {
+        // 等待模型完整输出：不设置前端超时，不传入 Abort 信号
+        const data = await request('/planner/generate', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        currentSteps = Array.isArray(data?.plan?.steps) ? data.plan.steps.map((s, i) => ({
+          index: Number(s.index ?? i + 1),
+          title: String(s.title ?? `步骤 ${i + 1}`),
+          description: String(s.description ?? ''),
+          due_date: String(s.due_date ?? ''),
+          owner: String(s.owner ?? 'me'),
+          status: String(s.status ?? 'pending'),
+        })) : [];
+        // 生成新计划后，清空当前计划ID，避免“保存计划”覆盖已有计划
+        currentPlanId = null;
+        renderPlan(currentSteps);
+        updateSaveButtonLabel();
+        setAlert('计划已生成，共 ' + (currentSteps.length || 0) + ' 条。', 'success');
+      } catch (err) {
+        setAlert('生成失败：' + (err?.message || err), 'danger');
+      }
+    });
+
+    // 导出 JSON：直接导出完整 steps（包含未显示字段，如 title/owner），保持兼容性
+    exportJsonBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ steps: currentSteps }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'plan.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // 复制 CSV：与显示列一致，来源为 currentSteps
+    copyCsvBtn.addEventListener('click', async () => {
+      const csv = toCsv(currentSteps);
+      try {
+        await navigator.clipboard.writeText(csv);
+        setAlert('CSV 已复制到剪贴板。', 'success');
+      } catch {
+        setAlert('复制失败，请手动选择并复制表格。', 'warning');
+      }
+    });
+    // 操作列：标记完成/取消完成（事件委托）
+    planBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const idx = Number(btn.dataset.index);
+      const i = currentSteps.findIndex(s => Number(s.index) === idx);
+      if (i === -1) return;
+      if (action === 'done') currentSteps[i].status = 'done';
+      if (action === 'undo') currentSteps[i].status = 'pending';
+      renderPlan(currentSteps);
+      setAlert(action === 'done' ? `已标记 DAY ${idx} 完成。` : `已取消 DAY ${idx} 完成。`, 'success');
+    });
+
+    // 保存计划到后端（使用当前内存数据）
+    savePlanBtn.addEventListener('click', async () => {
+      if (!user) {
+        setAlert('未登录，正在跳转到登录页…');
+        setTimeout(() => window.location.href = 'index.html', 600);
+        return;
+      }
+      if (!currentSteps || currentSteps.length === 0) {
+        setAlert('暂无可保存的计划，请先生成。');
+        return;
+      }
+      try {
+        const goal = document.getElementById('goal').value.trim() || '未命名目标';
+        const constraints = document.getElementById('constraints').value.trim();
+        const stepsCount = Number(document.getElementById('stepsCount').value || currentSteps.length) || currentSteps.length;
+        const deadline = document.getElementById('deadline').value || undefined;
+        const payload = {
+          goal,
+          constraints: constraints || undefined,
+          steps_count: stepsCount,
+          deadline,
+          plan: { steps: currentSteps },
+          visibility: 'private',
+        };
+        if (currentPlanId) {
+          await request(`/planner/${currentPlanId}`, { method: 'PUT', body: JSON.stringify(payload) });
+          setAlert('计划已更新。ID=' + currentPlanId, 'success');
+        } else {
+          const data = await request('/planner/save', { method: 'POST', body: JSON.stringify(payload) });
+          currentPlanId = data.id;
+          setAlert('计划已保存。ID=' + data.id, 'success');
+        }
+        updateSaveButtonLabel();
+        // 保存或更新后刷新历史列表
+        await refreshPlansList();
+      } catch (err) {
+        setAlert('保存失败：' + (err?.message || err), 'danger');
+      }
+    });
+
+    /**
+     * 另存为新计划：无论是否正在编辑已有计划，始终执行新建保存（POST）。
+     * 成功后将 currentPlanId 更新为新计划ID，后续“保存计划”即为更新操作。
+     */
+    saveAsNewPlanBtn.addEventListener('click', async () => {
+      if (!user) {
+        setAlert('未登录，正在跳转到登录页…');
+        setTimeout(() => window.location.href = 'index.html', 600);
+        return;
+      }
+      if (!currentSteps || currentSteps.length === 0) {
+        setAlert('暂无可保存的计划，请先生成。');
+        return;
+      }
+      try {
+        const goal = document.getElementById('goal').value.trim() || '未命名目标';
+        const constraints = document.getElementById('constraints').value.trim();
+        const stepsCount = Number(document.getElementById('stepsCount').value || currentSteps.length) || currentSteps.length;
+        const deadline = document.getElementById('deadline').value || undefined;
+        const payload = {
+          goal,
+          constraints: constraints || undefined,
+          steps_count: stepsCount,
+          deadline,
+          plan: { steps: currentSteps },
+          visibility: 'private',
+        };
+        const data = await request('/planner/save', { method: 'POST', body: JSON.stringify(payload) });
+        currentPlanId = data.id;
+        updateSaveButtonLabel();
+        setAlert('已另存为新计划。ID=' + data.id, 'success');
+        await refreshPlansList();
+      } catch (err) {
+        setAlert('另存失败：' + (err?.message || err), 'danger');
+      }
+    });
+
+    // 刷新历史计划列表
+    async function refreshPlansList() {
+      if (!user) return;
+      try {
+        const data = await request('/planner/list');
+        plansListEl.innerHTML = '';
+        const plans = Array.isArray(data?.plans) ? data.plans : [];
+        if (plans.length === 0) {
+          plansListEl.innerHTML = '<li class="list-group-item text-muted">暂无历史计划</li>';
+          return;
+        }
+        plans.forEach(p => {
+          const li = document.createElement('li');
+          li.className = 'list-group-item d-flex justify-content-between align-items-center';
+          const left = document.createElement('div');
+          left.innerHTML = `<div><strong>#${p.id}</strong> ${escapeHtml(p.goal || '')}</div>
+            <div class="text-muted small">更新于：${escapeHtml((p.updated_at || '').replace('T', ' '))}</div>`;
+          const right = document.createElement('div');
+          right.className = 'd-flex gap-2';
+          const loadBtn = document.createElement('button');
+          loadBtn.className = 'btn btn-sm btn-outline-primary';
+          loadBtn.textContent = '加载';
+          loadBtn.addEventListener('click', () => loadPlan(p.id));
+          const delBtn = document.createElement('button');
+          delBtn.className = 'btn btn-sm btn-outline-danger';
+          delBtn.textContent = '删除';
+          delBtn.addEventListener('click', () => deletePlan(p.id));
+          right.append(loadBtn, delBtn);
+          li.append(left, right);
+          plansListEl.appendChild(li);
+        });
+      } catch (err) {
+        setAlert('加载历史计划失败：' + (err?.message || err), 'danger');
+      }
+    }
+
+    // 加载单个计划到当前编辑区
+    async function loadPlan(id) {
+      try {
+        const plan = await request(`/planner/${id}`);
+        let steps = [];
+        try {
+          const obj = typeof plan.plan_json === 'string' ? JSON.parse(plan.plan_json) : plan.plan_json || {};
+          steps = Array.isArray(obj.steps) ? obj.steps : [];
+        } catch { steps = []; }
+        currentPlanId = id;
+        // 写入表单字段
+        document.getElementById('goal').value = String(plan.goal || '');
+        document.getElementById('constraints').value = String(plan.constraints || '');
+        document.getElementById('stepsCount').value = String(plan.steps_count || steps.length || '');
+        document.getElementById('deadline').value = String(plan.deadline || '');
+        // 写入当前步骤并渲染
+        currentSteps = steps.map((s, i) => ({
+          index: Number(s.index ?? i + 1),
+          title: String(s.title ?? `步骤 ${i + 1}`),
+          description: String(s.description ?? ''),
+          due_date: String(s.due_date ?? ''),
+          owner: String(s.owner ?? 'me'),
+          status: String(s.status ?? 'pending'),
+        }));
+        renderPlan(currentSteps);
+        setAlert('已加载计划 #' + id + '，可以继续编辑并保存。', 'success');
+      } catch (err) {
+        setAlert('加载计划失败：' + (err?.message || err), 'danger');
+      }
+    }
+
+    // 删除计划
+    async function deletePlan(id) {
+      if (!confirm(`确认删除计划 #${id}？该操作不可恢复。`)) return;
+      try {
+        await request(`/planner/${id}`, { method: 'DELETE' });
+        setAlert('已删除计划 #' + id, 'success');
+        if (currentPlanId === id) {
+          currentPlanId = null;
+          updateSaveButtonLabel();
+        }
+        await refreshPlansList();
+      } catch (err) {
+        setAlert('删除失败：' + (err?.message || err), 'danger');
+      }
+    }
+
+    // 绑定刷新历史列表
+    refreshPlansBtn.addEventListener('click', refreshPlansList);
+    // 页面加载后刷新一次历史列表
+    if (user) {
+      refreshPlansList();
+    }
+    // 对话编辑模块：通过自然语言指令修改 currentSteps
+    const chat = new PlanChatEditor({
+      messagesEl: document.getElementById('chatMessages'),
+      inputEl: document.getElementById('chatInput'),
+      sendBtn: document.getElementById('chatSendBtn'),
+      getPlan: () => currentSteps,
+      setPlan: (steps) => { currentSteps = steps; renderPlan(currentSteps); },
+      onFeedback: (msg, type = 'info') => setAlert(msg, type),
+    });
+    // 页面初始更新一次保存按钮文案
+    updateSaveButtonLabel();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
